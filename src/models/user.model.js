@@ -19,7 +19,7 @@ const userSchema=new Schema({
         lowercase:true,
         trim:true,
     },
-    fullname:{
+    fullName:{
         type:String,
         required:true,
         trim:true,
@@ -29,7 +29,7 @@ const userSchema=new Schema({
         type:String,
         required:true,
     },
-    coverImage:{
+    coverimage:{
         type:String,
     },
     watchHistory:[
@@ -42,7 +42,7 @@ const userSchema=new Schema({
         type:String,
         required:[true,'password is required']
     },
-    refrenceToken:{
+    refreshToken:{
         type:String
     }
     
@@ -58,7 +58,7 @@ userSchema.pre("save",async function(next){
 })
 
 //custom method
-userSchema.method.issPasswordCorrect=async function(password){
+userSchema.method.isPasswordCorrect=async function(password){
     return await bcrypt.compare(password,this.password)
 }
 
@@ -77,7 +77,7 @@ userSchema.method.generateAccessToken= function(){
 }
 
 
-userSchema.method.RefreshToken= function(){
+userSchema.method.generateRefreshToken= function(){
     jwt.sign({
         _id:this._id,
     },
