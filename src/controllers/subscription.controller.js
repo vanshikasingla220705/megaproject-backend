@@ -1,53 +1,141 @@
 import mongoose, {isValidObjectId} from "mongoose"
-import {Playlist} from "../models/playlist.model.js"
+import {User} from "../models/user.model.js"
+import { Subscription } from "../models/subscription.model.js"
 import {ApiError} from "../utils/ApiError.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
 
 
-const createPlaylist = asyncHandler(async (req, res) => {
-    const {name, description} = req.body
+const toggleSubscription = asyncHandler(async (req, res) => {
+    const { channelId } = req.params;
 
-    //TODO: create playlist
-})
+    if (!channelId || !isValidObjectId(channelId)) {
+        throw new ApiError(400, "Invalid channel id");
+    }
 
-const getUserPlaylists = asyncHandler(async (req, res) => {
-    const {userId} = req.params
-    //TODO: get user playlists
-})
+    // Check if subscription exists
+    const existing = await Subscription.findOne({
+        channel: channelId,
+        subscriber: req.user._id
+    });
 
-const getPlaylistById = asyncHandler(async (req, res) => {
-    const {playlistId} = req.params
-    //TODO: get playlist by id
-})
+    if (existing) {
+        await existing.deleteOne();
+        return res.status(200).json(
+            new ApiResponse(200, {}, "Subscription removed successfully")
+        );
+    }
 
-const addVideoToPlaylist = asyncHandler(async (req, res) => {
-    const {playlistId, videoId} = req.params
-})
+    // If not subscribed, create a new subscription
+    const newSubscription = await Subscription.create({
+        channel: channelId,
+        subscriber: req.user._id
+    });
 
-const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
-    const {playlistId, videoId} = req.params
-    // TODO: remove video from playlist
+    return res.status(200).json(
+        new ApiResponse(200, newSubscription, "Subscription added successfully")
+    );
+});
 
-})
 
-const deletePlaylist = asyncHandler(async (req, res) => {
-    const {playlistId} = req.params
-    // TODO: delete playlist
-})
+// controller to return subscriber list of a channel
+const getUserChannelSubscribers = asyncHandler(async (req, res) => {
+    const { channelId } = req.params;
+    if (!channelId || !isValidObjectId(channelId)) {
+        throw new ApiError(400, "Invalid channel id");
+    }
 
-const updatePlaylist = asyncHandler(async (req, res) => {
-    const {playlistId} = req.params
-    const {name, description} = req.body
-    //TODO: update playlist
-})
+    // Find subscriptions for this channel
+    const subscribers = await Subscription.find({
+        channel: channelId
+    });
+
+    // ✅ Map correct subscriber IDs (users, not subscription docs)
+    const subscriberIds = subscribers.map(sub => sub.subscriber);
+
+    // ✅ Aggregate to populate subscriber details
+    const populated = await Subscription.aggregate([
+        {
+            $match: { subscriber: { $in: subscriberIds } } // ✅ Correct field for match
+        },
+        {
+            $lookup: {
+                from: "users",
+                localField: "subscriber",
+                foreignField: "_id",
+                as: "subscriber",
+                pipeline: [
+                    {
+                        $project: {
+                            username: 1,
+                            avatar: 1,
+                            fullName: 1
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            $addFields: { subscriber: { $first: "$subscriber" } } // ✅ Flatten the array
+        },
+        {
+            $project: { _id: 0, subscriber: 1 } // ✅ Return only subscriber info
+        }
+    ]);
+
+    return res.status(200).json(
+        new ApiResponse(200, populated, "subscribers fetched")
+    );
+
+});
+
+
+// controller to return channel list to which user has subscribed
+const getSubscribedChannels = asyncHandler(async (req, res) => {
+    const { subscriberId } = req.params;
+
+    if (!subscriberId || !isValidObjectId(subscriberId)) {
+        throw new ApiError(400, "Invalid subscriber id");
+    }
+
+    // ✅ Directly aggregate without an unnecessary initial find
+    const populated = await Subscription.aggregate([
+        {
+            $match: { subscriber: new mongoose.Types.ObjectId(subscriberId) } // Match subscriptions for the user
+        },
+        {
+            $lookup: {
+                from: "users",
+                localField: "channel",        // Channel user ID in subscription
+                foreignField: "_id",          // Match with _id in User collection
+                as: "channels",               // Array of matched channel documents
+                pipeline: [
+                    {
+                        $project: {           // Only include needed fields
+                            username: 1,
+                            avatar: 1,
+                            fullName: 1
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            $addFields: { channels: { $first: "$channels" } } // Flatten channels array
+        },
+        {
+            $project: { _id: 0, channels: 1 } // Only return the populated channels
+        }
+    ]);
+
+    return res.status(200).json(
+        new ApiResponse(200, populated, "Channels fetched successfully")
+    );
+});
+
 
 export {
-    createPlaylist,
-    getUserPlaylists,
-    getPlaylistById,
-    addVideoToPlaylist,
-    removeVideoFromPlaylist,
-    deletePlaylist,
-    updatePlaylist
+    toggleSubscription,
+    getUserChannelSubscribers,
+    getSubscribedChannels
 }
